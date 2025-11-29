@@ -212,7 +212,12 @@ sudo composer install --no-dev --optimize-autoloader
 # Create SQLite database
 sudo mkdir -p database
 sudo touch database/database.sqlite
+
+# Set correct permissions (CRITICAL for SQLite!)
+# SQLite needs write access to both the file AND the directory
+sudo chmod 775 database
 sudo chmod 664 database/database.sqlite
+sudo chown -R www-data:www-data database
 
 # Create .env file
 sudo cp .env.example .env
@@ -273,9 +278,13 @@ sudo chown -R www-data:www-data /var/www/laravel
 sudo find /var/www/laravel -type d -exec chmod 755 {} \;
 sudo find /var/www/laravel -type f -exec chmod 644 {} \;
 
-# Set storage and cache permissions
+# Set writable directories for Laravel
 sudo chmod -R 775 /var/www/laravel/storage
 sudo chmod -R 775 /var/www/laravel/bootstrap/cache
+
+# CRITICAL: SQLite needs write access to the database directory (not just the file!)
+# SQLite creates temporary journal/lock files in the directory
+sudo chmod 775 /var/www/laravel/database
 sudo chmod 664 /var/www/laravel/database/database.sqlite
 
 # Create storage link
@@ -383,7 +392,28 @@ sudo tail -f /var/log/php-fpm/error.log
 sudo systemctl restart php-fpm nginx
 ```
 
-### If you see "Permission Denied":
+### If you see "attempt to write a readonly database" error:
+
+**Error**: `SQLSTATE[HY000]: General error: 8 attempt to write a readonly database`
+
+**This is the most common SQLite error!** SQLite needs write permissions on **both** the database file AND the database directory.
+
+**Solution**:
+```bash
+cd /var/www/laravel
+
+# Fix database directory permissions (CRITICAL!)
+sudo chmod 775 database
+sudo chmod 664 database/database.sqlite
+sudo chown -R www-data:www-data database
+
+# Restart services
+sudo systemctl restart php8.3-fpm nginx
+```
+
+**Why this happens**: SQLite creates temporary journal and lock files in the database directory. If the directory isn't writable, you get the "readonly database" error even if the database file itself is writable.
+
+### If you see other permission errors:
 
 ```bash
 # Fix permissions
@@ -575,4 +605,3 @@ If you encounter issues:
 **Success Rate**: 100% (no signals needed!)
 
 **Let's deploy!** 🚀
-

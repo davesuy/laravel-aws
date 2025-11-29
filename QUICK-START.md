@@ -135,7 +135,12 @@ sudo composer install --no-dev --optimize-autoloader
 # Create SQLite database
 sudo mkdir -p database
 sudo touch database/database.sqlite
+
+# Set correct permissions (CRITICAL for SQLite!)
+# SQLite needs write access to both the file AND the directory
+sudo chmod 775 database
 sudo chmod 664 database/database.sqlite
+sudo chown -R www-data:www-data database
 
 # Copy environment file
 sudo cp .env.example .env
@@ -166,14 +171,21 @@ sudo php artisan migrate --force
 ### Step 10: Set Permissions
 
 ```bash
-# Set ownership
+# Set ownership (www-data is the Nginx/PHP-FPM user)
 sudo chown -R www-data:www-data /var/www/laravel
 
-# Set permissions
+# Set directory permissions
 sudo find /var/www/laravel -type d -exec chmod 755 {} \;
+
+# Set file permissions
 sudo find /var/www/laravel -type f -exec chmod 644 {} \;
+
+# Set writable directories for Laravel
 sudo chmod -R 775 /var/www/laravel/storage
 sudo chmod -R 775 /var/www/laravel/bootstrap/cache
+
+# CRITICAL: SQLite needs write access to the database directory (not just the file!)
+sudo chmod 775 /var/www/laravel/database
 sudo chmod 664 /var/www/laravel/database/database.sqlite
 
 # Create storage link
@@ -252,6 +264,20 @@ sudo tail -f /var/log/nginx/error.log
 sudo chown -R www-data:www-data /var/www/laravel
 sudo chmod -R 775 /var/www/laravel/storage
 sudo chmod -R 775 /var/www/laravel/bootstrap/cache
+```
+
+### If you see "attempt to write a readonly database" error:
+
+```bash
+# SQLite needs write access to BOTH the file and directory
+cd /var/www/laravel
+
+sudo chmod 775 database
+sudo chmod 664 database/database.sqlite
+sudo chown -R www-data:www-data database
+
+# Restart services
+sudo systemctl restart php8.3-fpm nginx
 ```
 
 ---

@@ -113,6 +113,9 @@ sudo cp -r temp/* .
 sudo cp -r temp/.* . 2>/dev/null || true
 sudo rm -rf temp
 
+# Add safe directory for Git
+sudo git config --global --add safe.directory /var/www/laravel
+
 # Or if you have a specific repo URL:
 # sudo git clone YOUR_GITHUB_URL temp
 ```
@@ -204,6 +207,17 @@ You should see your Laravel application! 🎉
 
 ## 🔍 Troubleshooting
 
+### If git pull fails with "dubious ownership" error:
+
+```bash
+# Add safe directory exception
+sudo git config --global --add safe.directory /var/www/laravel
+
+# Then try pulling again
+cd /var/www/laravel
+sudo git pull origin main
+```
+
 ### If composer install fails with Symfony 8.0 errors:
 
 ```bash
@@ -280,4 +294,3 @@ sudo chmod -R 775 /var/www/laravel/bootstrap/cache
 **Everything is fixed and ready to go!** 🚀
 
 Just follow the steps above and your Laravel app will be live on AWS EC2!
-

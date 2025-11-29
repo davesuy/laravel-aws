@@ -190,6 +190,9 @@ sudo cp -r temp/* .
 sudo cp -r temp/.* . 2>/dev/null || true
 sudo rm -rf temp
 
+# Add safe directory to prevent Git ownership errors
+sudo git config --global --add safe.directory /var/www/laravel
+
 # Or if directory is empty, clone directly:
 # sudo git clone https://github.com/davesuy/laravel-aws.git .
 ```

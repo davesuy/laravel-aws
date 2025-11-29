@@ -206,7 +206,34 @@ sudo composer install --no-dev --optimize-autoloader
 # This may take 2-3 minutes
 ```
 
-### Step 8: Configure Laravel Environment
+### Step 8: Install Node.js and Build Frontend Assets
+
+**Important**: Laravel 11 uses Vite for frontend assets. You must build these assets or you'll get "Vite manifest not found" errors.
+
+```bash
+# Install Node.js 20.x LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Verify Node.js installation
+node -v  # Should show v20.x.x
+npm -v   # Should show 10.x.x
+
+# Install npm dependencies
+cd /var/www/laravel
+sudo npm install
+
+# Build production assets with Vite
+sudo npm run build
+
+# Verify build was successful
+ls -la /var/www/laravel/public/build/manifest.json
+# This file MUST exist or you'll get "Vite manifest not found" error
+
+# This will take 2-3 minutes
+```
+
+### Step 9: Configure Laravel Environment
 
 ```bash
 # Create SQLite database
@@ -248,7 +275,7 @@ LOG_LEVEL=error
 
 **Save and exit**: Press `Ctrl+X`, then `Y`, then `Enter`
 
-### Step 9: Generate Application Key
+### Step 10: Generate Application Key
 
 ```bash
 # Generate Laravel app key
@@ -258,7 +285,7 @@ sudo php artisan key:generate
 cat .env | grep APP_KEY
 ```
 
-### Step 10: Set Up Database
+### Step 11: Set Up Database
 
 ```bash
 # Run migrations
@@ -268,7 +295,7 @@ sudo php artisan migrate --force
 sudo php artisan db:seed --force
 ```
 
-### Step 11: Set Permissions
+### Step 12: Set Permissions
 
 ```bash
 # Set ownership (Ubuntu uses www-data user)
@@ -291,7 +318,7 @@ sudo chmod 664 /var/www/laravel/database/database.sqlite
 sudo php artisan storage:link
 ```
 
-### Step 12: Optimize Laravel
+### Step 13: Optimize Laravel
 
 ```bash
 # Clear all caches
@@ -306,7 +333,7 @@ sudo php artisan route:cache
 sudo php artisan view:cache
 ```
 
-### Step 13: Final Restart
+### Step 14: Final Restart
 
 ```bash
 # Restart all services (Ubuntu uses php8.3-fpm or phpX.X-fpm)
@@ -321,7 +348,7 @@ php -v
 # Then use the correct service name (e.g., php8.1-fpm, php8.2-fpm, php8.3-fpm)
 ```
 
-### Step 14: Test Locally
+### Step 15: Test Locally
 
 ```bash
 # Test web server
@@ -412,6 +439,45 @@ sudo systemctl restart php8.3-fpm nginx
 ```
 
 **Why this happens**: SQLite creates temporary journal and lock files in the database directory. If the directory isn't writable, you get the "readonly database" error even if the database file itself is writable.
+
+### If you see "Vite manifest not found" error:
+
+**Error**: `Illuminate\Foundation\ViteManifestNotFoundException - Vite manifest not found at: /var/www/laravel/public/build/manifest.json`
+
+**This happens when frontend assets haven't been built!** Laravel 11 uses Vite for asset compilation.
+
+**Solution**:
+```bash
+cd /var/www/laravel
+
+# Install Node.js if not installed
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install npm dependencies
+sudo npm install
+
+# Build production assets
+sudo npm run build
+
+# Verify manifest.json exists
+ls -la public/build/manifest.json
+
+# Fix ownership
+sudo chown -R www-data:www-data public/build
+
+# Clear view cache and restart
+sudo php artisan view:clear
+sudo systemctl restart php8.3-fpm nginx
+```
+
+**Quick fix (no styling)**: If you don't need CSS/JS:
+```bash
+# Remove Vite directive from blade files
+sudo sed -i '/@vite/d' resources/views/welcome.blade.php
+sudo php artisan view:clear
+sudo systemctl restart php8.3-fpm nginx
+```
 
 ### If you see other permission errors:
 

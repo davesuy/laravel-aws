@@ -1,0 +1,418 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Laravel Application deployment on AWS'
+
+Parameters:
+  KeyName:
+    Description: Select an existing EC2 KeyPair to enable SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair
+
+  InstanceType:
+    Description: EC2 instance type (t3.micro is free tier eligible in most regions)
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t2.micro
+      - t3.small
+      - t2.small
+      - t3.medium
+      - t2.medium
+    ConstraintDescription: must be a valid EC2 instance type
+
+  DBUsername:
+    Description: Database administrator username
+    Type: String
+    Default: laraveladmin
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters
+
+  DBPassword:
+    Description: Database administrator password
+    Type: String
+    Default: Password123
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters and be at least 8 characters long
+
+  DBName:
+    Description: Database name
+    Type: String
+    Default: laraveldb
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters
+
+  AppEnvironment:
+    Description: Application environment
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - staging
+      - development
+
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    Default: 0.0.0.0/0
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+
+  CreateRDS:
+    Description: Create RDS MySQL database (No = use SQLite, faster and free)
+    Type: String
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-0c02fb55b34ab0aaa  # Amazon Linux 2023 (updated)
+    us-east-2:
+      AMI: ami-0a7d052c55b989c5e  # Amazon Linux 2023 (updated)
+    us-west-1:
+      AMI: ami-0d5ae5525eb033d0a  # Amazon Linux 2023 (updated)
+    us-west-2:
+      AMI: ami-0e8a80d3c6d6c1b6c  # Amazon Linux 2023 (updated)
+    eu-west-1:
+      AMI: ami-0d940f23d527c3ab1  # Amazon Linux 2023 (updated)
+    eu-west-2:
+      AMI: ami-0e5f882be1900e43b  # Amazon Linux 2023 (updated)
+    eu-north-1:
+      AMI: ami-0014ce3e52359afbd  # Amazon Linux 2023 (verified)
+    eu-central-1:
+      AMI: ami-0745e85b0c2a32258  # Amazon Linux 2023 (updated)
+    ap-southeast-1:
+      AMI: ami-0c3189395e5b39df7  # Amazon Linux 2023 (updated)
+    ap-southeast-2:
+      AMI: ami-0e326862c8e74c0d0  # Amazon Linux 2023 (updated)
+    ap-northeast-1:
+      AMI: ami-0f3d8b9bafe1fe1d6  # Amazon Linux 2023 (updated)
+    ap-south-1:
+      AMI: ami-0fda60cefceeaa4d3  # Amazon Linux 2023 (added)
+    ca-central-1:
+      AMI: ami-0da76f43f8e0e4d6c  # Amazon Linux 2023 (updated)
+    sa-east-1:
+      AMI: ami-0c4b44e2a1f5a5d2e  # Amazon Linux 2023 (added)
+
+Conditions:
+  CreateRDSResources: !Equals [!Ref CreateRDS, 'Yes']
+
+Resources:
+  # VPC and Network Configuration
+  LaravelVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC'
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LaravelVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PublicSubnet1'
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LaravelVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PublicSubnet2'
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LaravelVPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnet1'
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LaravelVPC
+      CidrBlock: 10.0.12.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateSubnet2'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-IGW'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref LaravelVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LaravelVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PublicRouteTable'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Groups
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP/HTTPS and SSH access
+      VpcId: !Ref LaravelVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-WebServerSG'
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable database access
+      VpcId: !Ref LaravelVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DBSG'
+
+  # IAM Role for EC2
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub '${LaravelStorageBucket.Arn}'
+                  - !Sub '${LaravelStorageBucket.Arn}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-EC2Role'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # S3 Bucket for Laravel Storage
+  LaravelStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-laravel-storage-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Storage'
+
+  # RDS Database (Optional)
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: CreateRDSResources
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS database
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-DBSubnetGroup'
+
+  LaravelDatabase:
+    Type: AWS::RDS::DBInstance
+    Condition: CreateRDSResources
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${AWS::StackName}-db'
+      DBName: !Ref DBName
+      Engine: mysql
+      EngineVersion: '8.0.39'
+      DBInstanceClass: db.t2.micro
+      AllocatedStorage: 20
+      StorageType: gp2
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 0
+      DeleteAutomatedBackups: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Database'
+
+  # Elastic IP for EC2 Instance
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-EIP'
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref WebServerInstance
+      EIP: !Ref ElasticIP
+
+  # EC2 Instance
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - AttachGateway
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref WebServerSecurityGroup
+          SubnetId: !Ref PublicSubnet1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp2
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-WebServer'
+
+Outputs:
+  WebsiteURL:
+    Description: URL of the Laravel application
+    Value: !Sub 'http://${ElasticIP}'
+
+  PublicIP:
+    Description: Public IP address of the web server
+    Value: !Ref ElasticIP
+
+  SSHCommand:
+    Description: SSH command to connect to the instance
+    Value: !Sub 'ssh -i /path/to/${KeyName}.pem ec2-user@${ElasticIP}'
+
+  DatabaseEndpoint:
+    Description: RDS database endpoint (only if CreateRDS=Yes)
+    Condition: CreateRDSResources
+    Value: !GetAtt LaravelDatabase.Endpoint.Address
+
+  DatabasePort:
+    Description: RDS database port (only if CreateRDS=Yes)
+    Condition: CreateRDSResources
+    Value: !GetAtt LaravelDatabase.Endpoint.Port
+
+  DatabaseName:
+    Description: Database name
+    Condition: CreateRDSResources
+    Value: !Ref DBName
+
+  S3BucketName:
+    Description: S3 bucket for Laravel storage
+    Value: !Ref LaravelStorageBucket
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref WebServerInstance
+
